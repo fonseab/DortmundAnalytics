@@ -2,7 +2,11 @@ module DortmundAnalytics
 
 using HTTP, Gumbo, Cascadia, DataFrames, CSV, Plots, Statistics
 
-const BASE_URL = "https://www.transfermarkt.com/borussia-dortmund/transfers/verein/16/saison_id/"
+const CLUBS = Dict(
+    "dortmund" => "borussia-dortmund/transfers/verein/16",
+    "ajax"     => "ajax-amsterdam/transfers/verein/610",
+    "porto"    => "fc-porto/transfers/verein/720",
+)
 
 function get_page(url)
     headers = ["User-Agent" => "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"]
@@ -10,8 +14,9 @@ function get_page(url)
     parsehtml(String(resp.body))
 end
 
-function scrape_season(season::Int)
-    html = get_page(BASE_URL * string(season))
+function scrape_season(club_path::String, season::Int)
+    url = "https://www.transfermarkt.com/" * club_path * "/saison_id/" * string(season)
+    html = get_page(url)
     tables = eachmatch(Selector("table.items"), html.root)
 
     length(tables) < 2 && return []
@@ -36,14 +41,17 @@ function scrape_season(season::Int)
     records
 end
 
-function scrape_all_seasons(from::Int=2010, to::Int=2024)
+function scrape_club(club_name::String; from::Int=2010, to::Int=2024)
+    path = CLUBS[club_name]
     all_records = []
     for season in from:to
-        println("Scraping $season...")
-        append!(all_records, scrape_season(season))
+        println("Scraping $club_name $season...")
+        append!(all_records, scrape_season(path, season))
         sleep(2)
     end
-    DataFrame(all_records)
+    df = DataFrame(all_records)
+    df.club_name .= club_name
+    df
 end
 
 function parse_fee(fee::AbstractString)
@@ -90,6 +98,18 @@ function player_roi(df::DataFrame)
     sort(joined, :roi, rev=true)
 end
 
+function holding_period_analysis(roi::DataFrame)
+    df = copy(roi)
+    df.years_held = df.season_out .- df.season_in
+
+    by_period = combine(groupby(df, :years_held),
+        :roi     => mean => :avg_roi,
+        :roi_pct => mean => :avg_roi_pct,
+        :roi     => length => :n_players)
+
+    sort(by_period, :years_held)
+end
+
 function plot_revenue(by_season::DataFrame)
     plot(by_season.season, by_season.total_revenue,
         label="Transfer Revenue (€m)",
@@ -118,17 +138,6 @@ function plot_roi(roi::DataFrame)
         color=ifelse.(roi.roi .>= 0, :green, :red),
         marker=:circle, ms=6)
 end
-function holding_period_analysis(roi::DataFrame)
-    df = copy(roi)
-    df.years_held = df.season_out .- df.season_in
-    
-    by_period = combine(groupby(df, :years_held),
-        :roi     => mean => :avg_roi,
-        :roi_pct => mean => :avg_roi_pct,
-        :roi     => length => :n_players)
-
-    sort(by_period, :years_held)
-end
 
 function plot_holding_period(hp::DataFrame)
     bar(hp.years_held, hp.avg_roi,
@@ -138,4 +147,5 @@ function plot_holding_period(hp::DataFrame)
         label="Avg ROI (€m)",
         color=ifelse.(hp.avg_roi .>= 0, :green, :red))
 end
+
 end
