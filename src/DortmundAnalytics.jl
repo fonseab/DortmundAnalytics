@@ -1,6 +1,6 @@
 module DortmundAnalytics
 
-using HTTP, Gumbo, Cascadia, DataFrames, CSV, Plots
+using HTTP, Gumbo, Cascadia, DataFrames, CSV, Plots, Statistics
 
 const BASE_URL = "https://www.transfermarkt.com/borussia-dortmund/transfers/verein/16/saison_id/"
 
@@ -118,5 +118,24 @@ function plot_roi(roi::DataFrame)
         color=ifelse.(roi.roi .>= 0, :green, :red),
         marker=:circle, ms=6)
 end
+function holding_period_analysis(roi::DataFrame)
+    df = copy(roi)
+    df.years_held = df.season_out .- df.season_in
+    
+    by_period = combine(groupby(df, :years_held),
+        :roi     => mean => :avg_roi,
+        :roi_pct => mean => :avg_roi_pct,
+        :roi     => length => :n_players)
 
+    sort(by_period, :years_held)
+end
+
+function plot_holding_period(hp::DataFrame)
+    bar(hp.years_held, hp.avg_roi,
+        xlabel="Years Held",
+        ylabel="Average ROI (€m)",
+        title="BVB Average ROI by Holding Period",
+        label="Avg ROI (€m)",
+        color=ifelse.(hp.avg_roi .>= 0, :green, :red))
+end
 end
